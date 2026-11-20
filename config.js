@@ -1,1 +1,1 @@
-window.JOINER_BRIDGE_URL = "https://bread-ave-decided-contacting.trycloudflare.com";
+window.JOINER_BRIDGE_URL = "https://pound-watching-while-whats.trycloudflare.com";
