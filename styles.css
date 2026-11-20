@@ -124,6 +124,20 @@ button:disabled { opacity: 0.55; cursor: wait; }
   justify-content: center;
 }
 
+.captcha-debug {
+  margin-top: 14px;
+  padding: 12px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 10px;
+  background: #0b0e15;
+  border: 1px solid #7a2f3a;
+  color: #ffb3bd;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 footer {
   display: flex;
   flex-wrap: wrap;

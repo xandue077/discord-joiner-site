@@ -15,6 +15,7 @@ const elements = {
   invite: $("invite"),
   result: $("result"),
   captcha: $("captcha"),
+  captchaDebug: $("captchaDebug"),
   bridgeUrl: $("bridgeUrl"),
 };
 
@@ -26,6 +27,44 @@ function setNotice(message, kind = "") {
   elements.notice.textContent = message;
   elements.notice.className = `notice ${kind}`.trim();
 }
+
+const debugLines = [];
+const originalConsoleError = console.error.bind(console);
+
+function formatDebugArg(value) {
+  if (value instanceof Error) return value.stack || value.message;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function debugLine(line) {
+  debugLines.push(String(line).slice(0, 800));
+  if (debugLines.length > 24) debugLines.shift();
+}
+
+function showCaptchaDebug() {
+  if (!debugLines.length) return;
+  elements.captchaDebug.textContent = debugLines.join("\n\n");
+  elements.captchaDebug.hidden = false;
+}
+
+console.error = (...args) => {
+  debugLine(`console.error: ${args.map(formatDebugArg).join(" ")}`);
+  originalConsoleError(...args);
+};
+
+window.addEventListener("error", (event) => {
+  if (event.target?.src) debugLine(`resource failed: ${event.target.src}`);
+  else if (event.message) debugLine(`window.error: ${event.message}`);
+}, true);
+
+window.addEventListener("unhandledrejection", (event) => {
+  debugLine(`unhandledrejection: ${formatDebugArg(event.reason)}`);
+});
 
 async function refreshBridgeUrl() {
   try {
@@ -152,6 +191,7 @@ async function submitCaptcha(captchaKey, request) {
       return;
     }
     setNotice(`Join failed: ${error.message}`, "bad");
+    showCaptchaDebug();
   }
 }
 
@@ -160,12 +200,16 @@ async function showCaptcha(captcha, request) {
     await ensureHcaptcha();
   } catch (error) {
     setNotice(error.message, "bad");
+    showCaptchaDebug();
     return;
   }
 
   elements.captcha.hidden = false;
   elements.captcha.replaceChildren();
-  window.ollieCaptchaError = (code) => setNotice(`Captcha failed: ${code || "unknown"}. Try again.`, "bad");
+  window.ollieCaptchaError = (code) => {
+    setNotice(`Captcha failed: ${code || "unknown"}. Try again.`, "bad");
+    showCaptchaDebug();
+  };
   captchaWidget = window.hcaptcha.render(elements.captcha, {
     sitekey: captcha.sitekey,
     rqdata: captcha.rqdata,
@@ -187,6 +231,7 @@ async function showCaptcha(captcha, request) {
     const code = typeof error === "string" ? error : error?.message || "unknown";
     if (code !== "challenge-closed" && code !== "challenge-expired") {
       setNotice(`Captcha failed: ${code}. Try again.`, "bad");
+      showCaptchaDebug();
     }
   }
 }
