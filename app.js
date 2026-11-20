@@ -135,6 +135,26 @@ function ensureHcaptcha() {
   return hcaptchaPromise;
 }
 
+async function submitCaptcha(captchaKey, request) {
+  elements.captcha.hidden = true;
+  setNotice("Captcha solved. Joining...");
+  try {
+    const data = await api(JOIN_PATH, {
+      token: request.token,
+      invite: request.invite,
+      captchaKey,
+    });
+    showResult(data);
+    setNotice("Invite accepted.", "good");
+  } catch (error) {
+    if (error.data?.captcha) {
+      await showCaptcha(error.data.captcha, request);
+      return;
+    }
+    setNotice(`Join failed: ${error.message}`, "bad");
+  }
+}
+
 async function showCaptcha(captcha, request) {
   try {
     await ensureHcaptcha();
@@ -149,29 +169,26 @@ async function showCaptcha(captcha, request) {
   captchaWidget = window.hcaptcha.render(elements.captcha, {
     sitekey: captcha.sitekey,
     rqdata: captcha.rqdata,
+    size: "invisible",
     theme: "dark",
-    callback: async (captchaKey) => {
-      elements.captcha.hidden = true;
-      setNotice("Captcha solved. Joining...");
-      try {
-        const data = await api(JOIN_PATH, {
-          token: request.token,
-          invite: request.invite,
-          captchaKey,
-        });
-        showResult(data);
-        setNotice("Invite accepted.", "good");
-      } catch (error) {
-        if (error.data?.captcha) {
-          await showCaptcha(error.data.captcha, request);
-          return;
-        }
-        setNotice(`Join failed: ${error.message}`, "bad");
-      }
-    },
     "error-callback": "ollieCaptchaError",
   });
-  setNotice("Complete the captcha to join.", "good");
+
+  setNotice("Solving Discord challenge...", "good");
+  try {
+    const result = await window.hcaptcha.execute(captchaWidget, {
+      async: true,
+      rqdata: captcha.rqdata,
+    });
+    const captchaKey = typeof result === "string" ? result : result?.response;
+    if (!captchaKey) throw new Error("Captcha returned no token.");
+    await submitCaptcha(captchaKey, request);
+  } catch (error) {
+    const code = typeof error === "string" ? error : error?.message || "unknown";
+    if (code !== "challenge-closed" && code !== "challenge-expired") {
+      setNotice(`Captcha failed: ${code}. Try again.`, "bad");
+    }
+  }
 }
 
 async function checkBridge() {
