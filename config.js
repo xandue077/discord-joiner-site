@@ -1,1 +1,1 @@
-window.JOINER_BRIDGE_URL = "https://reduces-fate-gbp-picked.trycloudflare.com";
+window.JOINER_BRIDGE_URL = "https://fog-classifieds-generator-racial.trycloudflare.com";
