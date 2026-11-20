@@ -1,4 +1,5 @@
 let bridge = String(window.JOINER_BRIDGE_URL || "").replace(/\/$/, "");
+const JOIN_PATH = "/invite-join";
 const $ = (id) => document.getElementById(id);
 
 const elements = {
@@ -41,7 +42,7 @@ async function refreshBridgeUrl() {
 
 async function api(path, body, retry = true) {
   if (!bridge) throw new Error("Bridge URL is missing.");
-  const timeout = path === "/join" ? 60000 : 20000;
+  const timeout = path === JOIN_PATH ? 60000 : 20000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   try {
@@ -56,7 +57,9 @@ async function api(path, body, retry = true) {
     try {
       data = text ? JSON.parse(text) : {};
     } catch {
-      data = { error: text.slice(0, 200) };
+      data = /^\s*</.test(text)
+        ? { error: `Bridge gateway error (HTTP ${response.status}).` }
+        : { error: text.slice(0, 200) };
     }
     if (!response.ok) {
       const error = new Error(data.error || `HTTP ${response.status}`);
@@ -139,7 +142,7 @@ async function showCaptcha(captcha, request) {
       elements.captcha.hidden = true;
       setNotice("Captcha solved. Joining...");
       try {
-        const data = await api("/join", {
+        const data = await api(JOIN_PATH, {
           token: request.token,
           invite: request.invite,
           captchaKey,
@@ -196,7 +199,7 @@ elements.joinForm.addEventListener("submit", async (event) => {
   elements.joinBtn.disabled = true;
   setNotice("Joining server...");
   try {
-    const data = await api("/join", { token, invite });
+    const data = await api(JOIN_PATH, { token, invite });
     showResult(data);
     setNotice("Invite accepted.", "good");
   } catch (error) {
