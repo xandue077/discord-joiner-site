@@ -104,8 +104,13 @@ function base64Json(value) {
   return btoa(binary);
 }
 
+function randomId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+}
+
 function discordHeaders(extra = {}) {
-  const locale = navigator.language || "en-US";
+  const locale = "en-US";
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   return {
     "Content-Type": "application/json",
@@ -115,19 +120,24 @@ function discordHeaders(extra = {}) {
     "X-Debug-Options": "bugReporterEnabled",
     "X-Super-Properties": base64Json({
       os: "Windows",
-      browser: "Chrome",
-      device: "",
-      browser_user_agent: navigator.userAgent,
-      browser_language: locale,
-      system_locale: locale,
-      browser_online: true,
-      timezone_name: timezone,
-      client_build_number: 135941,
-      native_build_number: 52005,
-      client_event_source: null,
+      browser: "Discord Client",
       release_channel: "stable",
-      client_version: "1.0.9180",
-      client_os_version: "10",
+      client_version: "1.0.9210",
+      os_version: "10.0.19044",
+      os_arch: "x64",
+      app_arch: "x64",
+      system_locale: locale,
+      has_client_mods: false,
+      client_launch_id: randomId(),
+      browser_user_agent: navigator.userAgent,
+      browser_version: "35.3.0",
+      os_sdk_version: "19044",
+      client_build_number: 455964,
+      native_build_number: 69976,
+      client_event_source: null,
+      launch_signature: randomId(),
+      client_heartbeat_session_id: randomId(),
+      client_app_state: "focused",
     }),
     ...extra,
   };
@@ -149,14 +159,18 @@ async function discordFetch(path, token, options = {}) {
   } catch {
     data = { message: text.slice(0, 200) };
   }
-  return { ok: response.ok, status: response.status, data };
+  return { ok: response.ok, status: response.status, code: data?.code, data };
 }
 
 async function directVerify(token) {
   const clean = cleanToken(token);
   if (!clean) throw new Error("Missing token.");
   const result = await discordFetch("/users/@me", clean, { method: "GET" });
-  if (!result.ok) throw new Error(result.data?.message || `Discord returned HTTP ${result.status}.`);
+  if (!result.ok) {
+    const error = new Error(result.data?.message || `Discord returned HTTP ${result.status}.`);
+    error.code = result.code;
+    throw error;
+  }
   const data = result.data;
   return {
     id: String(data.id ?? ""),
@@ -164,6 +178,7 @@ async function directVerify(token) {
     username: String(data.username ?? ""),
     globalName: String(data.global_name ?? ""),
     avatar: String(data.avatar ?? ""),
+    verified: Boolean(data.verified),
     selected: true,
   };
 }
@@ -189,7 +204,10 @@ async function directJoin(token, invite, captchaKey = "", rqtoken = "") {
     };
     throw error;
   }
-  throw new Error(result.data?.message || `Discord returned HTTP ${result.status}.`);
+  const error = new Error(result.data?.message || `Discord returned HTTP ${result.status}.`);
+  error.code = result.code;
+  error.status = result.status;
+  throw error;
 }
 
 function ensureHcaptcha() {
@@ -264,6 +282,7 @@ function loadAccounts() {
         username: String(account?.username ?? ""),
         globalName: String(account?.globalName ?? ""),
         avatar: String(account?.avatar ?? ""),
+        verified: Boolean(account?.verified),
         selected: account?.selected !== false,
       }))
       .filter((account) => {
@@ -324,7 +343,7 @@ function renderAccounts() {
     name.textContent = displayName(account);
     const masked = document.createElement("div");
     masked.className = "muted";
-    masked.textContent = `${account.token.slice(0, 6)}...${account.token.slice(-4)}`;
+    masked.textContent = `${account.token.slice(0, 6)}...${account.token.slice(-4)}${account.verified === false ? " · Discord unverified" : ""}`;
     info.append(name, masked);
 
     const remove = document.createElement("button");
@@ -373,7 +392,7 @@ async function addAccounts(text) {
       else accounts.push(account);
       added.push(displayName(account));
     } catch (error) {
-      failed.push(`${token.slice(0, 6)}... ${error.message}`);
+      failed.push(`${token.slice(0, 6)}... ${friendlyJoinError(error)}`);
     }
     renderAccounts();
   }
@@ -388,6 +407,19 @@ async function addAccounts(text) {
   } else {
     setNotice(`Added ${added.length} account${added.length === 1 ? "" : "s"}.`, "good");
   }
+}
+
+function friendlyJoinError(error) {
+  if ([40002, 50178].includes(error?.code)) {
+    return "Discord requires this account to be verified first; verify its email or phone in Discord, then retry";
+  }
+  if (error?.code === 340015) {
+    return "Discord has limited this account from joining new servers";
+  }
+  if (error?.code === 50009) {
+    return "Discord channel verification level is too high for this account";
+  }
+  return error?.message || "Join failed";
 }
 
 async function joinOne(account, invite) {
@@ -421,7 +453,7 @@ async function joinSelected(invite) {
       results.push(result);
       ok += 1;
     } catch (error) {
-      results.push({ ok: false, text: `${displayName(account)} → ${error.message}` });
+      results.push({ ok: false, text: `${displayName(account)} → ${friendlyJoinError(error)}` });
       debugLine(`${displayName(account)}: ${formatDebugArg(error)}`);
       showCaptchaDebug();
     }
