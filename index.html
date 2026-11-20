@@ -4,41 +4,42 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Server Joiner</title>
-    <link rel="stylesheet" href="styles.css?v=20261120m" />
-    <script src="config.js?v=20261120m"></script>
-    <script src="app.js?v=20261120m" defer></script>
+    <link rel="stylesheet" href="styles.css?v=20261120n" />
+    <script src="app.js?v=20261120n" defer></script>
   </head>
   <body>
     <main class="shell">
       <section class="card">
         <div class="eyebrow">discord account tool</div>
         <h1>Server Joiner</h1>
-        <p class="lede">Log in with your account token, paste an invite, and join with onboarding and rule screening handled automatically.</p>
+        <p class="lede">Add one or many account tokens, paste an invite, and join with onboarding and rule screening handled automatically.</p>
 
-        <div id="notice" class="notice" role="status" aria-live="polite">Checking bridge...</div>
+        <div id="notice" class="notice" role="status" aria-live="polite">Ready.</div>
 
-        <form id="loginForm" class="stack">
+        <form id="addForm" class="stack">
           <label>
-            <span>Account token</span>
-            <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="Discord account token" required />
+            <span>Account tokens, one per line</span>
+            <textarea id="tokens" rows="4" autocomplete="off" spellcheck="false" placeholder="Paste one token per line"></textarea>
           </label>
-          <button id="loginBtn" type="submit">Verify account</button>
+          <button id="addBtn" type="submit">Add accounts</button>
         </form>
 
-        <div id="account" class="account" hidden>
-          <div id="avatar" class="avatar" aria-hidden="true"></div>
-          <div>
-            <div class="muted">signed in as</div>
-            <div id="accountName" class="account-name"></div>
+        <div class="toolbar">
+          <div id="accountCount" class="muted">0 saved · 0 selected</div>
+          <div class="toolbar-buttons">
+            <button id="selectAllBtn" type="button" class="secondary">Select all</button>
+            <button id="clearBtn" type="button" class="secondary">Clear</button>
           </div>
         </div>
+
+        <div id="accountList" class="account-list"></div>
 
         <form id="joinForm" class="stack" hidden>
           <label>
             <span>Server invite</span>
             <input id="invite" type="url" inputmode="url" spellcheck="false" placeholder="https://discord.gg/example" required />
           </label>
-          <button id="joinBtn" type="submit">Join server</button>
+          <button id="joinBtn" type="submit">Join selected accounts</button>
         </form>
 
         <div id="result" class="result" hidden></div>
@@ -46,7 +47,8 @@
         <pre id="captchaDebug" class="captcha-debug" hidden></pre>
 
         <footer>
-          <span>Bridge: <code id="bridgeUrl"></code></span>
+          <span>Mode: GitHub Pages, browser direct</span>
+          <span>Tokens: saved in this browser only</span>
           <span>Onboarding bypass: on</span>
           <span>Rule screening bypass: on</span>
         </footer>

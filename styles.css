@@ -42,7 +42,8 @@ h1 { margin: 8px 0 10px; font-size: 32px; }
 
 label { display: grid; gap: 7px; font-size: 14px; color: #cdd3e1; }
 
-input {
+input,
+textarea {
   width: 100%;
   padding: 13px 14px;
   border-radius: 10px;
@@ -52,7 +53,10 @@ input {
   font: inherit;
 }
 
-input:focus { outline: 2px solid #5865f2; outline-offset: 1px; }
+textarea { resize: vertical; line-height: 1.5; }
+
+input:focus,
+textarea:focus { outline: 2px solid #5865f2; outline-offset: 1px; }
 
 button {
   border: 0;
@@ -67,6 +71,24 @@ button {
 
 button:hover { background: #4752c4; }
 button:disabled { opacity: 0.55; cursor: wait; }
+
+button.secondary {
+  background: #222838;
+  border: 1px solid #343b50;
+  padding: 9px 12px;
+  font-size: 13px;
+}
+
+button.secondary:hover { background: #2d3549; }
+
+button.danger {
+  background: #4a202a;
+  border: 1px solid #7a2f3a;
+  padding: 9px 12px;
+  font-size: 13px;
+}
+
+button.danger:hover { background: #662b38; }
 
 .notice {
   padding: 11px 13px;
@@ -105,14 +127,65 @@ button:disabled { opacity: 0.55; cursor: wait; }
 .muted { color: #8e97ab; font-size: 12px; }
 .account-name { font-weight: 700; margin-top: 2px; }
 
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.toolbar-buttons { display: flex; gap: 8px; }
+
+.account-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.account-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #151a26;
+  border: 1px solid #2c3346;
+}
+
+.account-row input { width: auto; }
+.account-info { min-width: 0; }
+.account-info .account-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.avatar.small {
+  width: 34px;
+  height: 34px;
+}
+
+.empty { padding: 14px; }
+
 .result {
+  display: grid;
+  gap: 8px;
   margin-top: 18px;
   padding: 14px;
   border-radius: 12px;
-  background: #112019;
-  border: 1px solid #236b48;
+  background: #10141d;
+  border: 1px solid #2c3346;
   line-height: 1.5;
 }
+
+.result-line {
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: #151a26;
+}
+
+.result-line.good { color: #9be7c4; }
+.result-line.bad { color: #ffb3bd; }
 
 .captcha {
   margin-top: 18px;

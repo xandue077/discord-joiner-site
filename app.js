@@ -1,35 +1,37 @@
-let bridge = String(window.JOINER_BRIDGE_URL || "").replace(/\/$/, "");
-const JOIN_PATH = "/invite-join";
+"use strict";
+
+const API = "https://discord.com/api/v10";
+const STORE_KEY = "ollie-discord-joiner-accounts-v1";
 const $ = (id) => document.getElementById(id);
 
 const elements = {
   notice: $("notice"),
-  loginForm: $("loginForm"),
-  loginBtn: $("loginBtn"),
-  token: $("token"),
-  account: $("account"),
-  accountName: $("accountName"),
-  avatar: $("avatar"),
+  addForm: $("addForm"),
+  tokens: $("tokens"),
+  addBtn: $("addBtn"),
+  accountList: $("accountList"),
+  accountCount: $("accountCount"),
+  selectAllBtn: $("selectAllBtn"),
+  clearBtn: $("clearBtn"),
   joinForm: $("joinForm"),
-  joinBtn: $("joinBtn"),
   invite: $("invite"),
+  joinBtn: $("joinBtn"),
   result: $("result"),
   captcha: $("captcha"),
   captchaDebug: $("captchaDebug"),
-  bridgeUrl: $("bridgeUrl"),
 };
 
-let token = "";
-let captchaWidget = null;
+let accounts = [];
 let hcaptchaPromise = null;
+let activeWidget = null;
+
+const debugLines = [];
+const originalConsoleError = console.error.bind(console);
 
 function setNotice(message, kind = "") {
   elements.notice.textContent = message;
   elements.notice.className = `notice ${kind}`.trim();
 }
-
-const debugLines = [];
-const originalConsoleError = console.error.bind(console);
 
 function formatDebugArg(value) {
   if (value instanceof Error) return value.stack || value.message;
@@ -46,24 +48,10 @@ function debugLine(line) {
   if (debugLines.length > 24) debugLines.shift();
 }
 
-async function sendCaptchaDebug() {
-  if (!bridge || !debugLines.length) return;
-  try {
-    await fetch(`${bridge}/captcha-debug`, {
-      method: "POST",
-      body: JSON.stringify({ lines: debugLines }),
-      cache: "no-store",
-    });
-  } catch {
-    return;
-  }
-}
-
 function showCaptchaDebug() {
   if (!debugLines.length) return;
   elements.captchaDebug.textContent = debugLines.join("\n\n");
   elements.captchaDebug.hidden = false;
-  void sendCaptchaDebug();
 }
 
 console.error = (...args) => {
@@ -80,55 +68,12 @@ window.addEventListener("unhandledrejection", (event) => {
   debugLine(`unhandledrejection: ${formatDebugArg(event.reason)}`);
 });
 
-async function refreshBridgeUrl() {
-  try {
-    const response = await fetch(`config.js?t=${Date.now()}`, { cache: "no-store" });
-    const text = await response.text();
-    const match = text.match(/window\.JOINER_BRIDGE_URL\s*=\s*"([^"]+)"/);
-    if (match) {
-      bridge = match[1].replace(/\/$/, "");
-      elements.bridgeUrl.textContent = bridge;
-    }
-  } catch {
-    return;
-  }
+function cleanToken(value) {
+  return String(value ?? "").replace(/^Bot\s+/i, "").trim();
 }
 
-async function api(path, body, retry = true) {
-  if (!bridge) throw new Error("Bridge URL is missing.");
-  const timeout = path === JOIN_PATH ? 60000 : 20000;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
-  try {
-    const response = await fetch(`${bridge}${path}`, {
-      method: body ? "POST" : "GET",
-      body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-      cache: "no-store",
-    });
-    const text = await response.text();
-    let data = {};
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      data = /^\s*</.test(text)
-        ? { error: `Bridge gateway error (HTTP ${response.status}).` }
-        : { error: text.slice(0, 200) };
-    }
-    if (!response.ok) {
-      const error = new Error(data.error || `HTTP ${response.status}`);
-      error.httpStatus = response.status;
-      error.data = data;
-      throw error;
-    }
-    return data;
-  } catch (error) {
-    if (error.httpStatus || !retry) throw error;
-    await refreshBridgeUrl();
-    return api(path, body, false);
-  } finally {
-    clearTimeout(timer);
-  }
+function displayName(account) {
+  return account?.globalName || account?.username || account?.id || "account";
 }
 
 function inviteCode(value) {
@@ -137,15 +82,13 @@ function inviteCode(value) {
   try {
     const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
     const host = url.hostname.toLowerCase();
-    if (
-      host !== "discord.gg" &&
-      host !== "discord.com" &&
-      host !== "discordapp.com" &&
-      !host.endsWith(".discord.com") &&
-      !host.endsWith(".discordapp.com")
-    ) {
-      throw new Error("Invite must be a discord.gg or discord.com link.");
-    }
+    const allowed =
+      host === "discord.gg" ||
+      host === "discord.com" ||
+      host === "discordapp.com" ||
+      host.endsWith(".discord.com") ||
+      host.endsWith(".discordapp.com");
+    if (!allowed) throw new Error("Invite must be a discord.gg or discord.com link.");
     const code = url.pathname.split("/").filter(Boolean).at(-1) ?? "";
     if (!/^[a-zA-Z0-9_-]{1,120}$/.test(code)) throw new Error("Missing invite code.");
     return code;
@@ -161,14 +104,14 @@ function base64Json(value) {
   return btoa(binary);
 }
 
-function discordHeaders(userToken, captchaKey, rqtoken) {
+function discordHeaders(extra = {}) {
   const locale = navigator.language || "en-US";
-  const headers = {
-    Authorization: userToken,
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  return {
     "Content-Type": "application/json",
     "X-Context-Properties": base64Json({ location: "Markdown Link" }),
     "X-Discord-Locale": locale,
-    "X-Discord-Timezone": Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    "X-Discord-Timezone": timezone,
     "X-Debug-Options": "bugReporterEnabled",
     "X-Super-Properties": base64Json({
       os: "Windows",
@@ -178,7 +121,7 @@ function discordHeaders(userToken, captchaKey, rqtoken) {
       browser_language: locale,
       system_locale: locale,
       browser_online: true,
-      timezone_name: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      timezone_name: timezone,
       client_build_number: 135941,
       native_build_number: 52005,
       client_event_source: null,
@@ -186,18 +129,17 @@ function discordHeaders(userToken, captchaKey, rqtoken) {
       client_version: "1.0.9180",
       client_os_version: "10",
     }),
+    ...extra,
   };
-  if (captchaKey) headers["X-Captcha-Key"] = captchaKey;
-  if (rqtoken) headers["X-Captcha-Rqtoken"] = rqtoken;
-  return headers;
 }
 
-async function directJoin(userToken, invite, captchaKey = "", rqtoken = "") {
-  const code = inviteCode(invite);
-  const response = await fetch(`https://discord.com/api/v10/invites/${code}`, {
-    method: "POST",
-    headers: discordHeaders(userToken, captchaKey, rqtoken),
-    body: JSON.stringify({ session_id: null }),
+async function discordFetch(path, token, options = {}) {
+  const response = await fetch(`${API}${path}`, {
+    ...options,
+    headers: {
+      Authorization: token,
+      ...discordHeaders(options.headers),
+    },
     cache: "no-store",
   });
   const text = await response.text();
@@ -207,70 +149,59 @@ async function directJoin(userToken, invite, captchaKey = "", rqtoken = "") {
   } catch {
     data = { message: text.slice(0, 200) };
   }
-  if (response.ok) return { guild: data?.guild ?? data, alreadyMember: false };
-  if (data?.captcha_service) {
+  return { ok: response.ok, status: response.status, data };
+}
+
+async function directVerify(token) {
+  const clean = cleanToken(token);
+  if (!clean) throw new Error("Missing token.");
+  const result = await discordFetch("/users/@me", clean, { method: "GET" });
+  if (!result.ok) throw new Error(result.data?.message || `Discord returned HTTP ${result.status}.`);
+  const data = result.data;
+  return {
+    id: String(data.id ?? ""),
+    token: clean,
+    username: String(data.username ?? ""),
+    globalName: String(data.global_name ?? ""),
+    avatar: String(data.avatar ?? ""),
+    selected: true,
+  };
+}
+
+async function directJoin(token, invite, captchaKey = "", rqtoken = "") {
+  const code = inviteCode(invite);
+  const headers = {};
+  if (captchaKey) headers["X-Captcha-Key"] = captchaKey;
+  if (rqtoken) headers["X-Captcha-Rqtoken"] = rqtoken;
+  const result = await discordFetch(`/invites/${code}`, token, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ session_id: null }),
+  });
+  if (result.ok) return result.data;
+  if (result.data?.captcha_service) {
     const error = new Error("Discord requires a captcha.");
-    error.data = {
-      captcha: {
-        service: data.captcha_service,
-        sitekey: data.captcha_sitekey,
-        rqdata: data.captcha_rqdata,
-        rqtoken: data.captcha_rqtoken,
-      },
+    error.captcha = {
+      service: result.data.captcha_service,
+      sitekey: result.data.captcha_sitekey,
+      rqdata: result.data.captcha_rqdata,
+      rqtoken: result.data.captcha_rqtoken,
     };
     throw error;
   }
-  const error = new Error(data?.message || `Discord returned HTTP ${response.status}.`);
-  error.httpStatus = response.status;
-  throw error;
-}
-
-function showAccount(account) {
-  const name = account.globalName || account.username || "Discord account";
-  elements.accountName.textContent = `${name} (${account.id || "unknown id"})`;
-  elements.avatar.replaceChildren();
-  if (account.id && account.avatar) {
-    const image = document.createElement("img");
-    image.src = `https://cdn.discordapp.com/avatars/${account.id}/${account.avatar}.png?size=80`;
-    image.alt = "";
-    elements.avatar.append(image);
-  }
-  elements.account.hidden = false;
-  elements.joinForm.hidden = false;
-}
-
-function showResult(data) {
-  const guild = data.guild;
-  elements.result.replaceChildren();
-
-  const title = document.createElement("div");
-  title.className = "account-name";
-  title.textContent = guild?.name ? `Joined ${guild.name}` : "Invite accepted";
-  elements.result.append(title);
-
-  const detail = document.createElement("div");
-  detail.className = "muted";
-  const parts = [];
-  if (guild?.id) parts.push(`ID ${guild.id}`);
-  if (guild?.memberCount) parts.push(`${guild.memberCount} members`);
-  if (data.alreadyMember) parts.push("already a member");
-  if (data.channelId) parts.push(`channel ${data.channelId}`);
-  detail.textContent = parts.join(" · ");
-  elements.result.append(detail);
-  elements.result.hidden = false;
+  throw new Error(result.data?.message || `Discord returned HTTP ${result.status}.`);
 }
 
 function ensureHcaptcha() {
   if (window.__hcaptchaReady && window.hcaptcha) return Promise.resolve();
   if (hcaptchaPromise) return hcaptchaPromise;
-
   hcaptchaPromise = new Promise((resolve, reject) => {
     window.ollieHcaptchaReady = () => {
       window.__hcaptchaReady = true;
       resolve();
     };
     const script = document.createElement("script");
-    script.src = "https://js.hcaptcha.com/1/api.js?onload=ollieHcaptchaReady&render=explicit&recaptchacompat=off&host=discord.com";
+    script.src = "https://js.hcaptcha.com/1/api.js?onload=ollieHcaptchaReady&render=explicit&recaptchacompat=off";
     script.async = true;
     script.defer = true;
     script.onerror = () => {
@@ -282,45 +213,24 @@ function ensureHcaptcha() {
   return hcaptchaPromise;
 }
 
-async function submitCaptcha(captchaKey, request) {
-  elements.captcha.hidden = true;
-  setNotice("Captcha solved. Joining...");
-  try {
-    const data = request.direct
-      ? await directJoin(request.token, request.invite, captchaKey, request.rqtoken)
-      : await api(JOIN_PATH, {
-          token: request.token,
-          invite: request.invite,
-          captchaKey,
-        });
-    showResult(data);
-    setNotice("Invite accepted.", "good");
-  } catch (error) {
-    if (error.data?.captcha) {
-      await showCaptcha(error.data.captcha, request);
-      return;
-    }
-    setNotice(`Join failed: ${error.message}`, "bad");
-    showCaptchaDebug();
-  }
-}
-
-async function showCaptcha(captcha, request) {
-  try {
-    await ensureHcaptcha();
-  } catch (error) {
-    setNotice(error.message, "bad");
-    showCaptchaDebug();
-    return;
-  }
-
+async function solveCaptcha(captcha) {
+  await ensureHcaptcha();
   elements.captcha.hidden = false;
   elements.captcha.replaceChildren();
+
+  if (activeWidget !== null && typeof window.hcaptcha.destroy === "function") {
+    try {
+      window.hcaptcha.destroy(activeWidget);
+    } catch {
+      activeWidget = null;
+    }
+  }
+
   window.ollieCaptchaError = (code) => {
-    setNotice(`Captcha failed: ${code || "unknown"}. Try again.`, "bad");
-    showCaptchaDebug();
+    debugLine(`hcaptcha error-callback: ${String(code ?? "unknown")}`);
   };
-  captchaWidget = window.hcaptcha.render(elements.captcha, {
+
+  activeWidget = window.hcaptcha.render(elements.captcha, {
     sitekey: captcha.sitekey,
     size: "invisible",
     theme: "dark",
@@ -328,96 +238,237 @@ async function showCaptcha(captcha, request) {
   });
 
   if (captcha.rqdata && typeof window.hcaptcha.setData === "function") {
-    window.hcaptcha.setData(captchaWidget, { rqdata: captcha.rqdata });
+    window.hcaptcha.setData(activeWidget, { rqdata: captcha.rqdata });
   }
 
-  setTimeout(showCaptchaDebug, 900);
-  setNotice("Solving Discord challenge...", "good");
+  setNotice("Solving Discord captcha...");
+  const result = await window.hcaptcha.execute(activeWidget, {
+    async: true,
+    rqdata: captcha.rqdata,
+  });
+  const key = typeof result === "string" ? result : result?.response;
+  if (!key) throw new Error("Captcha returned no token.");
+  elements.captcha.hidden = true;
+  return { key, rqtoken: captcha.rqtoken };
+}
+
+function loadAccounts() {
   try {
-    const result = await window.hcaptcha.execute(captchaWidget, {
-      async: true,
-      rqdata: captcha.rqdata,
-    });
-    const captchaKey = typeof result === "string" ? result : result?.response;
-    if (!captchaKey) throw new Error("Captcha returned no token.");
-    await submitCaptcha(captchaKey, {
-      ...request,
-      rqtoken: captcha.rqtoken || request.rqtoken,
-    });
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
+    const clean = Array.isArray(saved) ? saved : [];
+    const seen = new Set();
+    accounts = clean
+      .map((account) => ({
+        id: String(account?.id ?? ""),
+        token: cleanToken(account?.token),
+        username: String(account?.username ?? ""),
+        globalName: String(account?.globalName ?? ""),
+        avatar: String(account?.avatar ?? ""),
+        selected: account?.selected !== false,
+      }))
+      .filter((account) => {
+        if (!account.token || seen.has(account.token)) return false;
+        seen.add(account.token);
+        return true;
+      });
+  } catch {
+    accounts = [];
+  }
+}
+
+function saveAccounts() {
+  localStorage.setItem(STORE_KEY, JSON.stringify(accounts));
+}
+
+function renderAccounts() {
+  elements.accountList.replaceChildren();
+  const count = accounts.length;
+  const selected = accounts.filter((account) => account.selected).length;
+  elements.accountCount.textContent = `${count} saved · ${selected} selected`;
+  elements.joinForm.hidden = count === 0;
+  elements.selectAllBtn.disabled = count === 0;
+  elements.clearBtn.disabled = count === 0;
+
+  if (count === 0) {
+    const empty = document.createElement("div");
+    empty.className = "muted empty";
+    empty.textContent = "No accounts saved yet. Paste one or many tokens above.";
+    elements.accountList.append(empty);
+    return;
+  }
+
+  for (const account of accounts) {
+    const row = document.createElement("div");
+    row.className = "account-row";
+
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.checked = Boolean(account.selected);
+    check.dataset.action = "select";
+    check.dataset.token = account.token;
+    check.setAttribute("aria-label", `Select ${displayName(account)}`);
+
+    const avatar = document.createElement("div");
+    avatar.className = "avatar small";
+    if (account.id && account.avatar) {
+      const image = document.createElement("img");
+      image.src = `https://cdn.discordapp.com/avatars/${account.id}/${account.avatar}.png?size=40`;
+      image.alt = "";
+      avatar.append(image);
+    }
+
+    const info = document.createElement("div");
+    info.className = "account-info";
+    const name = document.createElement("div");
+    name.className = "account-name";
+    name.textContent = displayName(account);
+    const masked = document.createElement("div");
+    masked.className = "muted";
+    masked.textContent = `${account.token.slice(0, 6)}...${account.token.slice(-4)}`;
+    info.append(name, masked);
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "danger";
+    remove.dataset.action = "remove";
+    remove.dataset.token = account.token;
+    remove.textContent = "Remove";
+
+    row.append(check, avatar, info, remove);
+    elements.accountList.append(row);
+  }
+}
+
+function renderResults(results) {
+  elements.result.replaceChildren();
+  if (!results.length) {
+    elements.result.hidden = true;
+    return;
+  }
+  for (const result of results) {
+    const line = document.createElement("div");
+    line.className = `result-line ${result.ok ? "good" : "bad"}`;
+    line.textContent = result.text;
+    elements.result.append(line);
+  }
+  elements.result.hidden = false;
+}
+
+async function addAccounts(text) {
+  const tokens = [...new Set(String(text || "").split(/\s+/).map(cleanToken).filter(Boolean))];
+  if (!tokens.length) {
+    setNotice("Paste at least one token.", "bad");
+    return;
+  }
+
+  elements.addBtn.disabled = true;
+  const added = [];
+  const failed = [];
+
+  for (const token of tokens) {
+    try {
+      const account = await directVerify(token);
+      const index = accounts.findIndex((item) => item.id === account.id || item.token === token);
+      if (index >= 0) accounts[index] = account;
+      else accounts.push(account);
+      added.push(displayName(account));
+    } catch (error) {
+      failed.push(`${token.slice(0, 6)}... ${error.message}`);
+    }
+    renderAccounts();
+  }
+
+  saveAccounts();
+  renderAccounts();
+  elements.tokens.value = "";
+  elements.addBtn.disabled = false;
+
+  if (failed.length) {
+    setNotice(`Added ${added.length}. Failed: ${failed.slice(0, 3).join(" | ")}`, failed.length === tokens.length ? "bad" : "good");
+  } else {
+    setNotice(`Added ${added.length} account${added.length === 1 ? "" : "s"}.`, "good");
+  }
+}
+
+async function joinOne(account, invite) {
+  try {
+    const data = await directJoin(account.token, invite);
+    const guild = data?.guild ?? data;
+    return { ok: true, text: `${displayName(account)} → joined ${guild?.name || "server"}` };
   } catch (error) {
-    const code = typeof error === "string" ? error : error?.message || "unknown";
-    if (code !== "challenge-closed" && code !== "challenge-expired") {
-      setNotice(`Captcha failed: ${code}. Try again.`, "bad");
+    if (!error.captcha) throw error;
+    const solved = await solveCaptcha(error.captcha);
+    const data = await directJoin(account.token, invite, solved.key, solved.rqtoken);
+    const guild = data?.guild ?? data;
+    return { ok: true, text: `${displayName(account)} → joined ${guild?.name || "server"}` };
+  }
+}
+
+async function joinSelected(invite) {
+  const selected = accounts.filter((account) => account.selected);
+  if (!selected.length) {
+    setNotice("Select at least one account.", "bad");
+    return;
+  }
+
+  elements.joinBtn.disabled = true;
+  const results = [];
+  let ok = 0;
+  for (const [index, account] of selected.entries()) {
+    setNotice(`Joining ${index + 1}/${selected.length}: ${displayName(account)}...`);
+    try {
+      const result = await joinOne(account, invite);
+      results.push(result);
+      ok += 1;
+    } catch (error) {
+      results.push({ ok: false, text: `${displayName(account)} → ${error.message}` });
+      debugLine(`${displayName(account)}: ${formatDebugArg(error)}`);
       showCaptchaDebug();
     }
+    renderResults(results);
   }
+  elements.joinBtn.disabled = false;
+  setNotice(`Finished: ${ok}/${selected.length} joined.`, ok === selected.length ? "good" : "bad");
 }
 
-async function checkBridge() {
-  try {
-    await api("/health", null, false);
-    setNotice("Bridge online. Ready to verify your account.", "good");
-  } catch (error) {
-    setNotice(`Bridge offline: ${error.message}`, "bad");
-  }
-}
-
-elements.loginForm.addEventListener("submit", async (event) => {
+elements.addForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  elements.result.hidden = true;
-  elements.joinForm.hidden = true;
-  elements.account.hidden = true;
-  elements.captcha.hidden = true;
-  token = elements.token.value.trim();
+  await addAccounts(elements.tokens.value);
+});
 
-  elements.loginBtn.disabled = true;
-  setNotice("Verifying account...");
-  try {
-    const data = await api("/verify", { token });
-    showAccount(data.account);
-    setNotice("Account verified. Paste an invite below.", "good");
-  } catch (error) {
-    setNotice(`Login failed: ${error.message}`, "bad");
-  } finally {
-    elements.loginBtn.disabled = false;
-  }
+elements.selectAllBtn.addEventListener("click", () => {
+  for (const account of accounts) account.selected = true;
+  saveAccounts();
+  renderAccounts();
+});
+
+elements.clearBtn.addEventListener("click", () => {
+  for (const account of accounts) account.selected = false;
+  saveAccounts();
+  renderAccounts();
+});
+
+elements.accountList.addEventListener("change", (event) => {
+  if (event.target?.dataset?.action !== "select") return;
+  const account = accounts.find((item) => item.token === event.target.dataset.token);
+  if (!account) return;
+  account.selected = event.target.checked;
+  saveAccounts();
+  renderAccounts();
+});
+
+elements.accountList.addEventListener("click", (event) => {
+  if (event.target?.dataset?.action !== "remove") return;
+  accounts = accounts.filter((item) => item.token !== event.target.dataset.token);
+  saveAccounts();
+  renderAccounts();
 });
 
 elements.joinForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const invite = elements.invite.value.trim();
-
-  elements.joinBtn.disabled = true;
-  setNotice("Joining server...");
-  try {
-    let data;
-    try {
-      data = await directJoin(token, invite);
-    } catch (error) {
-      if (error.data?.captcha) {
-        await showCaptcha(error.data.captcha, {
-          token,
-          invite,
-          direct: true,
-          rqtoken: error.data.captcha.rqtoken,
-        });
-        return;
-      }
-      if (error instanceof TypeError) throw error;
-      data = await api(JOIN_PATH, { token, invite });
-    }
-    showResult(data);
-    setNotice("Invite accepted.", "good");
-  } catch (error) {
-    if (error.data?.captcha) {
-      await showCaptcha(error.data.captcha, { token, invite });
-      return;
-    }
-    setNotice(`Join failed: ${error.message}`, "bad");
-  } finally {
-    elements.joinBtn.disabled = false;
-  }
+  await joinSelected(elements.invite.value.trim());
 });
 
-elements.bridgeUrl.textContent = bridge || "missing";
-checkBridge();
+loadAccounts();
+renderAccounts();
+setNotice("GitHub Pages mode. Tokens stay in this browser.", "good");
