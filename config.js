@@ -1,1 +1,1 @@
-window.JOINER_BRIDGE_URL = "https://totally-shopping-arthur-room.trycloudflare.com";
+window.JOINER_BRIDGE_URL = "https://scotland-recipient-default-periods.trycloudflare.com";
