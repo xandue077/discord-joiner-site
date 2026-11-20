@@ -123,7 +123,7 @@ function ensureHcaptcha() {
       resolve();
     };
     const script = document.createElement("script");
-    script.src = "https://js.hcaptcha.com/1/api.js?onload=ollieHcaptchaReady&render=explicit&recaptchacompat=off";
+    script.src = "https://js.hcaptcha.com/1/api.js?onload=ollieHcaptchaReady&render=explicit&recaptchacompat=off&host=discord.com";
     script.async = true;
     script.defer = true;
     script.onerror = () => {
