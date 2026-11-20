@@ -1,1 +1,1 @@
-window.JOINER_BRIDGE_URL = "https://pound-watching-while-whats.trycloudflare.com";
+window.JOINER_BRIDGE_URL = "https://bookmarks-trans-smart-periods.trycloudflare.com";
