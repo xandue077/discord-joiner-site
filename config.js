@@ -1,1 +1,1 @@
-window.JOINER_BRIDGE_URL = "https://keyboards-scientific-shots-point.trycloudflare.com";
+window.JOINER_BRIDGE_URL = "https://reduces-fate-gbp-picked.trycloudflare.com";
