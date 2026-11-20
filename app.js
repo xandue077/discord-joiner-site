@@ -46,10 +46,24 @@ function debugLine(line) {
   if (debugLines.length > 24) debugLines.shift();
 }
 
+async function sendCaptchaDebug() {
+  if (!bridge || !debugLines.length) return;
+  try {
+    await fetch(`${bridge}/captcha-debug`, {
+      method: "POST",
+      body: JSON.stringify({ lines: debugLines }),
+      cache: "no-store",
+    });
+  } catch {
+    return;
+  }
+}
+
 function showCaptchaDebug() {
   if (!debugLines.length) return;
   elements.captchaDebug.textContent = debugLines.join("\n\n");
   elements.captchaDebug.hidden = false;
+  void sendCaptchaDebug();
 }
 
 console.error = (...args) => {
@@ -221,6 +235,7 @@ async function showCaptcha(captcha, request) {
     window.hcaptcha.setData(captchaWidget, { rqdata: captcha.rqdata });
   }
 
+  setTimeout(showCaptchaDebug, 900);
   setNotice("Solving Discord challenge...", "good");
   try {
     const result = await window.hcaptcha.execute(captchaWidget, {
