@@ -1,1 +1,1 @@
-window.JOINER_BRIDGE_URL = "https://bookmarks-trans-smart-periods.trycloudflare.com";
+window.JOINER_BRIDGE_URL = "https://keyboards-scientific-shots-point.trycloudflare.com";
