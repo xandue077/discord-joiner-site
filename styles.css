@@ -156,6 +156,7 @@ button.danger:hover { background: #662b38; }
   border: 1px solid #2c3346;
 }
 
+.account-row.locked { border-color: #7a2f3a; background: #20151a; }
 .account-row input { width: auto; }
 .account-info { min-width: 0; }
 .account-info .account-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

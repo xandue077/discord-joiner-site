@@ -13,6 +13,7 @@ const elements = {
   accountCount: $("accountCount"),
   selectAllBtn: $("selectAllBtn"),
   clearBtn: $("clearBtn"),
+  resetBtn: $("resetBtn"),
   joinForm: $("joinForm"),
   invite: $("invite"),
   joinBtn: $("joinBtn"),
@@ -179,6 +180,7 @@ async function directVerify(token) {
     globalName: String(data.global_name ?? ""),
     avatar: String(data.avatar ?? ""),
     verified: Boolean(data.verified),
+    locked: false,
     selected: true,
   };
 }
@@ -283,6 +285,7 @@ function loadAccounts() {
         globalName: String(account?.globalName ?? ""),
         avatar: String(account?.avatar ?? ""),
         verified: Boolean(account?.verified),
+        locked: Boolean(account?.locked),
         selected: account?.selected !== false,
       }))
       .filter((account) => {
@@ -318,7 +321,7 @@ function renderAccounts() {
 
   for (const account of accounts) {
     const row = document.createElement("div");
-    row.className = "account-row";
+    row.className = account.locked ? "account-row locked" : "account-row";
 
     const check = document.createElement("input");
     check.type = "checkbox";
@@ -343,7 +346,10 @@ function renderAccounts() {
     name.textContent = displayName(account);
     const masked = document.createElement("div");
     masked.className = "muted";
-    masked.textContent = `${account.token.slice(0, 6)}...${account.token.slice(-4)}${account.verified === false ? " · Discord unverified" : ""}`;
+    const flags = [];
+    if (account.locked) flags.push("Discord verification required");
+    else if (account.verified === false) flags.push("Discord unverified");
+    masked.textContent = `${account.token.slice(0, 6)}...${account.token.slice(-4)}${flags.length ? ` · ${flags.join(" · ")}` : ""}`;
     info.append(name, masked);
 
     const remove = document.createElement("button");
@@ -424,15 +430,24 @@ function friendlyJoinError(error) {
 
 async function joinOne(account, invite) {
   try {
-    const data = await directJoin(account.token, invite);
-    const guild = data?.guild ?? data;
-    return { ok: true, text: `${displayName(account)} → joined ${guild?.name || "server"}` };
+    try {
+      const data = await directJoin(account.token, invite);
+      const guild = data?.guild ?? data;
+      return { ok: true, text: `${displayName(account)} → joined ${guild?.name || "server"}` };
+    } catch (error) {
+      if (!error.captcha) throw error;
+      const solved = await solveCaptcha(error.captcha);
+      const data = await directJoin(account.token, invite, solved.key, solved.rqtoken);
+      const guild = data?.guild ?? data;
+      return { ok: true, text: `${displayName(account)} → joined ${guild?.name || "server"}` };
+    }
   } catch (error) {
-    if (!error.captcha) throw error;
-    const solved = await solveCaptcha(error.captcha);
-    const data = await directJoin(account.token, invite, solved.key, solved.rqtoken);
-    const guild = data?.guild ?? data;
-    return { ok: true, text: `${displayName(account)} → joined ${guild?.name || "server"}` };
+    if ([40002, 50178, 340015].includes(error?.code)) {
+      account.locked = true;
+      saveAccounts();
+      renderAccounts();
+    }
+    throw error;
   }
 }
 
@@ -454,8 +469,10 @@ async function joinSelected(invite) {
       ok += 1;
     } catch (error) {
       results.push({ ok: false, text: `${displayName(account)} → ${friendlyJoinError(error)}` });
-      debugLine(`${displayName(account)}: ${formatDebugArg(error)}`);
-      showCaptchaDebug();
+      if (![40002, 50178, 340015, 50009].includes(error?.code)) {
+        debugLine(`${displayName(account)}: ${formatDebugArg(error)}`);
+        showCaptchaDebug();
+      }
     }
     renderResults(results);
   }
@@ -478,6 +495,13 @@ elements.clearBtn.addEventListener("click", () => {
   for (const account of accounts) account.selected = false;
   saveAccounts();
   renderAccounts();
+});
+
+elements.resetBtn.addEventListener("click", () => {
+  for (const account of accounts) account.locked = false;
+  saveAccounts();
+  renderAccounts();
+  setNotice("Locked flags cleared. Retry those accounts after verifying them in Discord.", "good");
 });
 
 elements.accountList.addEventListener("change", (event) => {
