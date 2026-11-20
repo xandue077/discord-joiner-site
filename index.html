@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Server Joiner</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="config.js"></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card">
+        <div class="eyebrow">discord account tool</div>
+        <h1>Server Joiner</h1>
+        <p class="lede">Log in with your account token, paste an invite, and join with onboarding and rule screening handled automatically.</p>
+
+        <div id="notice" class="notice" role="status" aria-live="polite">Checking bridge...</div>
+
+        <form id="loginForm" class="stack">
+          <label>
+            <span>Account token</span>
+            <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="Discord account token" required />
+          </label>
+          <button id="loginBtn" type="submit">Verify account</button>
+        </form>
+
+        <div id="account" class="account" hidden>
+          <div id="avatar" class="avatar" aria-hidden="true"></div>
+          <div>
+            <div class="muted">signed in as</div>
+            <div id="accountName" class="account-name"></div>
+          </div>
+        </div>
+
+        <form id="joinForm" class="stack" hidden>
+          <label>
+            <span>Server invite</span>
+            <input id="invite" type="url" inputmode="url" spellcheck="false" placeholder="https://discord.gg/example" required />
+          </label>
+          <button id="joinBtn" type="submit">Join server</button>
+        </form>
+
+        <div id="result" class="result" hidden></div>
+
+        <footer>
+          <span>Bridge: <code id="bridgeUrl"></code></span>
+          <span>Onboarding bypass: on</span>
+          <span>Rule screening bypass: on</span>
+        </footer>
+      </section>
+    </main>
+  </body>
+</html>
