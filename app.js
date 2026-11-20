@@ -1,4 +1,4 @@
-const bridge = String(window.JOINER_BRIDGE_URL || "").replace(/\/$/, "");
+let bridge = String(window.JOINER_BRIDGE_URL || "").replace(/\/$/, "");
 const $ = (id) => document.getElementById(id);
 
 const elements = {
@@ -23,23 +23,45 @@ function setNotice(message, kind = "") {
   elements.notice.className = `notice ${kind}`.trim();
 }
 
-async function api(path, body) {
-  if (!bridge) throw new Error("Bridge URL is missing.");
-  const response = await fetch(`${bridge}${path}`, {
-    method: body ? "POST" : "GET",
-    headers: body ? { "Content-Type": "application/json" } : {},
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(30000),
-  });
-  const text = await response.text();
-  let data = {};
+async function refreshBridgeUrl() {
   try {
-    data = text ? JSON.parse(text) : {};
+    const response = await fetch(`config.js?t=${Date.now()}`, { cache: "no-store" });
+    const text = await response.text();
+    const match = text.match(/window\.JOINER_BRIDGE_URL\s*=\s*"([^"]+)"/);
+    if (match) {
+      bridge = match[1].replace(/\/$/, "");
+      elements.bridgeUrl.textContent = bridge;
+    }
   } catch {
-    data = { error: text.slice(0, 200) };
+    return;
   }
-  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-  return data;
+}
+
+async function api(path, body, retry = true) {
+  if (!bridge) throw new Error("Bridge URL is missing.");
+  const timeout = path === "/join" ? 45000 : 20000;
+  try {
+    const response = await fetch(`${bridge}${path}`, {
+      method: body ? "POST" : "GET",
+      headers: body ? { "Content-Type": "text/plain;charset=UTF-8" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(timeout),
+      cache: "no-store",
+    });
+    const text = await response.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { error: text.slice(0, 200) };
+    }
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
+  } catch (error) {
+    if (!retry) throw error;
+    await refreshBridgeUrl();
+    return api(path, body, false);
+  }
 }
 
 function showAccount(account) {
@@ -79,7 +101,7 @@ function showResult(data) {
 
 async function checkBridge() {
   try {
-    await api("/health");
+    await api("/health", null, false);
     setNotice("Bridge online. Ready to verify your account.", "good");
   } catch (error) {
     setNotice(`Bridge offline: ${error.message}`, "bad");
@@ -96,7 +118,7 @@ elements.loginForm.addEventListener("submit", async (event) => {
   elements.loginBtn.disabled = true;
   setNotice("Verifying account...");
   try {
-    const data = await api("/channels", { token });
+    const data = await api("/verify", { token });
     showAccount(data.account);
     setNotice("Account verified. Paste an invite below.", "good");
   } catch (error) {
