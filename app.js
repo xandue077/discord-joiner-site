@@ -13,10 +13,12 @@ const elements = {
   joinBtn: $("joinBtn"),
   invite: $("invite"),
   result: $("result"),
+  captcha: $("captcha"),
   bridgeUrl: $("bridgeUrl"),
 };
 
 let token = "";
+let captchaWidget = null;
 
 function setNotice(message, kind = "") {
   elements.notice.textContent = message;
@@ -39,13 +41,14 @@ async function refreshBridgeUrl() {
 
 async function api(path, body, retry = true) {
   if (!bridge) throw new Error("Bridge URL is missing.");
-  const timeout = path === "/join" ? 45000 : 20000;
+  const timeout = path === "/join" ? 60000 : 20000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
   try {
     const response = await fetch(`${bridge}${path}`, {
       method: body ? "POST" : "GET",
-      headers: body ? { "Content-Type": "text/plain;charset=UTF-8" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(timeout),
+      signal: controller.signal,
       cache: "no-store",
     });
     const text = await response.text();
@@ -55,12 +58,19 @@ async function api(path, body, retry = true) {
     } catch {
       data = { error: text.slice(0, 200) };
     }
-    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    if (!response.ok) {
+      const error = new Error(data.error || `HTTP ${response.status}`);
+      error.httpStatus = response.status;
+      error.data = data;
+      throw error;
+    }
     return data;
   } catch (error) {
-    if (!retry) throw error;
+    if (error.httpStatus || !retry) throw error;
     await refreshBridgeUrl();
     return api(path, body, false);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -99,6 +109,56 @@ function showResult(data) {
   elements.result.hidden = false;
 }
 
+async function ensureHcaptcha() {
+  if (window.hcaptcha) return;
+  await new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://js.hcaptcha.com/1/api.js?render=explicit";
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Captcha widget blocked."));
+    document.head.append(script);
+  });
+}
+
+async function showCaptcha(captcha, request) {
+  try {
+    await ensureHcaptcha();
+  } catch (error) {
+    setNotice(error.message, "bad");
+    return;
+  }
+
+  elements.captcha.hidden = false;
+  elements.captcha.replaceChildren();
+  captchaWidget = window.hcaptcha.render(elements.captcha, {
+    sitekey: captcha.sitekey,
+    rqdata: captcha.rqdata,
+    theme: "dark",
+    callback: async (captchaKey) => {
+      elements.captcha.hidden = true;
+      setNotice("Captcha solved. Joining...");
+      try {
+        const data = await api("/join", {
+          token: request.token,
+          invite: request.invite,
+          captchaKey,
+        });
+        showResult(data);
+        setNotice("Invite accepted.", "good");
+      } catch (error) {
+        if (error.data?.captcha) {
+          await showCaptcha(error.data.captcha, request);
+          return;
+        }
+        setNotice(`Join failed: ${error.message}`, "bad");
+      }
+    },
+    "error-callback": () => setNotice("Captcha failed. Try again.", "bad"),
+  });
+  setNotice("Complete the captcha to join.", "good");
+}
+
 async function checkBridge() {
   try {
     await api("/health", null, false);
@@ -113,6 +173,7 @@ elements.loginForm.addEventListener("submit", async (event) => {
   elements.result.hidden = true;
   elements.joinForm.hidden = true;
   elements.account.hidden = true;
+  elements.captcha.hidden = true;
   token = elements.token.value.trim();
 
   elements.loginBtn.disabled = true;
@@ -139,6 +200,10 @@ elements.joinForm.addEventListener("submit", async (event) => {
     showResult(data);
     setNotice("Invite accepted.", "good");
   } catch (error) {
+    if (error.data?.captcha) {
+      await showCaptcha(error.data.captcha, { token, invite });
+      return;
+    }
     setNotice(`Join failed: ${error.message}`, "bad");
   } finally {
     elements.joinBtn.disabled = false;
