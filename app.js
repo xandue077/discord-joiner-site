@@ -212,11 +212,14 @@ async function showCaptcha(captcha, request) {
   };
   captchaWidget = window.hcaptcha.render(elements.captcha, {
     sitekey: captcha.sitekey,
-    rqdata: captcha.rqdata,
     size: "invisible",
     theme: "dark",
     "error-callback": "ollieCaptchaError",
   });
+
+  if (captcha.rqdata && typeof window.hcaptcha.setData === "function") {
+    window.hcaptcha.setData(captchaWidget, { rqdata: captcha.rqdata });
+  }
 
   setNotice("Solving Discord challenge...", "good");
   try {
