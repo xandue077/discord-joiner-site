@@ -20,6 +20,7 @@ const elements = {
 
 let token = "";
 let captchaWidget = null;
+let hcaptchaPromise = null;
 
 function setNotice(message, kind = "") {
   elements.notice.textContent = message;
@@ -112,16 +113,26 @@ function showResult(data) {
   elements.result.hidden = false;
 }
 
-async function ensureHcaptcha() {
-  if (window.hcaptcha) return;
-  await new Promise((resolve, reject) => {
+function ensureHcaptcha() {
+  if (window.__hcaptchaReady && window.hcaptcha) return Promise.resolve();
+  if (hcaptchaPromise) return hcaptchaPromise;
+
+  hcaptchaPromise = new Promise((resolve, reject) => {
+    window.ollieHcaptchaReady = () => {
+      window.__hcaptchaReady = true;
+      resolve();
+    };
     const script = document.createElement("script");
-    script.src = "https://js.hcaptcha.com/1/api.js?render=explicit";
+    script.src = "https://js.hcaptcha.com/1/api.js?onload=ollieHcaptchaReady&render=explicit&recaptchacompat=off";
     script.async = true;
-    script.onload = resolve;
-    script.onerror = () => reject(new Error("Captcha widget blocked."));
+    script.defer = true;
+    script.onerror = () => {
+      hcaptchaPromise = null;
+      reject(new Error("Captcha widget blocked."));
+    };
     document.head.append(script);
   });
+  return hcaptchaPromise;
 }
 
 async function showCaptcha(captcha, request) {
@@ -134,6 +145,7 @@ async function showCaptcha(captcha, request) {
 
   elements.captcha.hidden = false;
   elements.captcha.replaceChildren();
+  window.ollieCaptchaError = (code) => setNotice(`Captcha failed: ${code || "unknown"}. Try again.`, "bad");
   captchaWidget = window.hcaptcha.render(elements.captcha, {
     sitekey: captcha.sitekey,
     rqdata: captcha.rqdata,
@@ -157,7 +169,7 @@ async function showCaptcha(captcha, request) {
         setNotice(`Join failed: ${error.message}`, "bad");
       }
     },
-    "error-callback": () => setNotice("Captcha failed. Try again.", "bad"),
+    "error-callback": "ollieCaptchaError",
   });
   setNotice("Complete the captcha to join.", "good");
 }
