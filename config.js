@@ -1,1 +1,1 @@
-window.JOINER_BRIDGE_URL = "https://house-people-hypothetical-superintendent.trycloudflare.com";
+window.JOINER_BRIDGE_URL = "https://cfr-grove-responding-object.trycloudflare.com";
