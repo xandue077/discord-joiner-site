@@ -1,1 +1,1 @@
-window.JOINER_BRIDGE_URL = "https://spatial-reporter-embedded-compatibility.trycloudflare.com";
+window.JOINER_BRIDGE_URL = "https://aus-brand-buy-belle.trycloudflare.com";
