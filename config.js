@@ -1,1 +1,1 @@
-window.JOINER_BRIDGE_URL = "https://cfr-grove-responding-object.trycloudflare.com";
+window.JOINER_BRIDGE_URL = "https://spatial-reporter-embedded-compatibility.trycloudflare.com";
