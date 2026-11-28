@@ -1,1 +1,1 @@
-window.JOINER_BRIDGE_URL = "https://smell-oakland-lifestyle-naturally.trycloudflare.com";
+window.JOINER_BRIDGE_URL = "https://reunion-levels-absent-terms.trycloudflare.com";
